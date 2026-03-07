@@ -1,8 +1,8 @@
 'use server';
 /**
  * @fileOverview This file implements the Genkit flow for the BhashaBridge chat mediation.
- * It handles translating user messages to bot language, generating bot replies with cultural analysis,
- * and translating bot replies back to the user's language.
+ * It handles processing user messages through a cultural lens, generating bot replies
+ * with full cultural analysis, and translating everything back in a single efficient call.
  *
  * - chatWithTranslatedBots - The main function to interact with the chat mediation AI.
  * - ChatWithTranslatedBotsInput - The input type for the chatWithTranslatedBots function.
@@ -40,47 +40,58 @@ const ChatWithTranslatedBotsOutputSchema = z.object({
 });
 export type ChatWithTranslatedBotsOutput = z.infer<typeof ChatWithTranslatedBotsOutputSchema>;
 
-// Prompt 1: Translate user message for the bot and analyze its tone
-const translateUserMessagePrompt = ai.definePrompt({
-  name: 'translateUserMessagePrompt',
+/**
+ * Combined prompt to handle translation, persona-based reply, and cultural analysis in one go.
+ * This significantly reduces API quota usage (prevents 429 errors).
+ */
+const culturalMediatorPrompt = ai.definePrompt({
+  name: 'culturalMediatorPrompt',
   input: {
-    schema: z.object({
-      userMessage: z.string(),
-      userLanguage: z.string(),
-      botLanguage: z.string(),
-      botName: z.string(),
-    }),
+    schema: ChatWithTranslatedBotsInputSchema,
   },
   output: {
-    schema: z.object({
-      translated_text: z.string(),
-      tone: z.enum(['formal', 'casual', 'friendly', 'aggressive', 'sarcastic', 'apologetic', 'enthusiastic', 'neutral']),
-    }),
+    schema: ChatWithTranslatedBotsOutputSchema,
   },
-  prompt: `You are BhashaBridge Cultural Mediator AI.\nUser ({{{userLanguage}}} speaker) sent this to {{{botName}}} ({{{botLanguage}}} speaker):\n'{{{userMessage}}}'\nReturn ONLY valid JSON:\n{\n  "translated_text": "translate to {{{botLanguage}}} naturally",\n  "tone": "formal/casual/friendly/aggressive/sarcastic/apologetic/enthusiastic/neutral"\n}`,
+  prompt: `You are BhashaBridge, a highly sophisticated Cultural Intelligence Mediator.
+Your task is to facilitate a deep, culturally aware conversation between a user and a specific bot character.
+
+CONTEXT:
+- User Language: {{{userLanguage}}}
+- Bot Character: {{{botName}}}
+- Bot Country: {{{botCountry}}}
+- Bot Language: {{{botLanguage}}}
+- Bot Personality: {{{botPersonality}}}
+
+USER MESSAGE (in {{{userLanguage}}}):
+'{{{userMessage}}}'
+
+YOUR MISSION:
+1. Act as {{{botName}}}. Understand the user's message (internally translating it if necessary).
+2. Generate a response in {{{botLanguage}}} that fits the character's persona perfectly. Keep it 1-3 sentences.
+3. Analyze that response for the {{{userLanguage}}} speaker, identifying cultural gaps, nuances, or potential misunderstandings.
+4. Translate your response back to {{{userLanguage}}} naturally (focus on meaning, not just words).
+
+RETURN ONLY VALID JSON:
+{
+  "botReplyOriginal": "your response in {{{botLanguage}}}",
+  "translatedText": "the natural translation into {{{userLanguage}}}",
+  "tone": "formal/casual/friendly/aggressive/sarcastic/apologetic/enthusiastic/neutral",
+  "nuanceDetected": true or false,
+  "nuanceType": "sarcasm/idiom/implied_meaning/politeness_level/cultural_reference/humor or null",
+  "nuanceExplanation": "plain English explanation of the nuance or null",
+  "sensitivityAlert": true or false,
+  "sensitivityReason": "why the user might misinterpret this based on their culture or null",
+  "culturalTip": "one helpful tip for the user or null",
+  "adaptedMessage": "a version of the message adapted for the user's cultural context or null"
+}
+
+CHARACTER GUIDES:
+- Lukas (German): Direct, professional, values efficiency over small talk.
+- Yuki (Japanese): Highly polite, values harmony, uses indirect language (e.g., 'It is difficult' often means 'No').
+- Emma (British): Uses understatement and sarcasm as a form of friendliness or politeness.`,
 });
 
-// Prompt 2: Bot generates reply and cultural analysis/translation back to user
-const generateBotReplyPrompt = ai.definePrompt({
-  name: 'generateBotReplyPrompt',
-  input: {
-    schema: z.object({
-      botName: z.string(),
-      botPersonality: z.string(),
-      botCountry: z.string(),
-      botLanguage: z.string(),
-      translatedMessage: z.string(), // This is the user's message, translated for the bot
-      userMessage: z.string(), // This is the user's original message in their language
-      userLanguage: z.string(),
-    }),
-  },
-  output: {
-    schema: ChatWithTranslatedBotsOutputSchema, // The flow output schema directly matches this prompt's output
-  },
-  prompt: `You are {{{botName}}}, a {{{botPersonality}}} person from {{{botCountry}}} who speaks {{{botLanguage}}}.\nYou received this message (translated): '{{{translatedMessage}}}'\nOriginal was in {{{userLanguage}}}: '{{{userMessage}}}'\n\nReply naturally as {{{botName}}} would — in {{{botLanguage}}}. Keep reply to 1-3 sentences.\n\nThen analyze your reply for the {{{userLanguage}}} speaker.\nReturn ONLY valid JSON:\n{\n  "bot_reply_original": "your reply in {{{botLanguage}}}",\n  "translated_text": "translate reply to {{{userLanguage}}} naturally — meaning by meaning",\n  "tone": "formal/casual/friendly/aggressive/sarcastic/apologetic/enthusiastic/neutral",\n  "nuance_detected": "true or false",\n  "nuance_type": "sarcasm/idiom/implied_meaning/politeness_level/cultural_reference/humor or null",\n  "nuance_explanation": "explain in simple English what nuance exists and why it matters or null",\n  "sensitivity_alert": "true or false",\n  "sensitivity_reason": "why this could be misunderstood or null",\n  "cultural_tip": "one actionable cross-cultural tip or null",\n  "adapted_message": "culturally adapted alternative if needed or null"\n}\n\nExamples to detect:\n- Lukas (German): Very direct, no small talk, formal titles matter\n- Yuki (Japanese): Indirect refusal, silence means disagreement, very polite\n- Emma (British): 'Quite good' means mediocre, sarcasm is common humor, understatement`,
-});
-
-// Main Genkit flow
+// Main Genkit flow - Now optimized to use a single prompt call
 const chatWithTranslatedBotsFlow = ai.defineFlow(
   {
     name: 'chatWithTranslatedBotsFlow',
@@ -88,34 +99,13 @@ const chatWithTranslatedBotsFlow = ai.defineFlow(
     outputSchema: ChatWithTranslatedBotsOutputSchema,
   },
   async (input) => {
-    // Call 1: Translate user message for the bot
-    const { output: translatedUserMessageOutput } = await translateUserMessagePrompt({
-      userMessage: input.userMessage,
-      userLanguage: input.userLanguage,
-      botLanguage: input.botLanguage,
-      botName: input.botName,
-    });
+    const { output } = await culturalMediatorPrompt(input);
 
-    if (!translatedUserMessageOutput) {
-      throw new Error('Failed to translate user message.');
+    if (!output) {
+      throw new Error('The cultural intelligence engine failed to generate a response. Please try again.');
     }
 
-    // Call 2: Bot generates reply and performs cultural analysis/translation
-    const { output: botReplyOutput } = await generateBotReplyPrompt({
-      botName: input.botName,
-      botPersonality: input.botPersonality,
-      botCountry: input.botCountry,
-      botLanguage: input.botLanguage,
-      translatedMessage: translatedUserMessageOutput.translated_text, // Use the translated text from the first call
-      userMessage: input.userMessage, // Pass original user message for context
-      userLanguage: input.userLanguage,
-    });
-
-    if (!botReplyOutput) {
-      throw new Error('Failed to generate bot reply or cultural analysis.');
-    }
-
-    return botReplyOutput;
+    return output;
   }
 );
 
