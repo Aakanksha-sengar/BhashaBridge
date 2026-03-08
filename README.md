@@ -44,10 +44,12 @@ https://9000-firebase-studio-1772911506022.cluster-mwsteha33jfdowtvzffztbjcj6.cl
 ## 📸 Screenshots
 
 ### Home Page
-![Home](home.png)
+
+<img width="1198" height="773" alt="Screenshot 2026-03-08 095838" src="https://github.com/user-attachments/assets/b8b13184-3142-4c7f-a7c5-932967fea6e4" />
 
 ### Chat Interface
-![Chat](chat.png)
+
+<img width="1884" height="781" alt="Screenshot (1)" src="https://github.com/user-attachments/assets/89182972-2fa9-455f-a56e-8fcc417c5add" />
 
 ---
 
