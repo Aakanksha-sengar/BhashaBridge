@@ -38,8 +38,7 @@ BhashaBridge uses AI to translate languages while also providing cultural contex
 
 Test the working prototype here:
 
-https://your-preview-link
-
+https://9000-firebase-studio-1772911506022.cluster-mwsteha33jfdowtvzffztbjcj6.cloudworkstations.dev/?monospaceUid=807575
 ---
 
 ## 📸 Screenshots
